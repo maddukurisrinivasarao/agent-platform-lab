@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "scenarios": [
+    {
+      "id": "ticket-reply-completes",
+      "ticket_id": "T-1001",
+      "allowed_actions": ["read_ticket", "draft_reply"],
+      "approval_required": [],
+      "expected_workflow_status": "completed",
+      "expected_task_status": "completed",
+      "expected_reply_contains": "sign-in issue"
+    },
+    {
+      "id": "reply-waits-for-approval",
+      "ticket_id": "T-1001",
+      "allowed_actions": ["read_ticket", "draft_reply"],
+      "approval_required": ["draft_reply"],
+      "expected_workflow_status": "blocked",
+      "expected_task_status": "waiting_for_approval",
+      "expected_reason_contains": "requires approval"
+    }
+  ]
+}

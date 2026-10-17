@@ -12,6 +12,16 @@ Run the tests from this directory:
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
+## Milestone 3: Versioned evaluation scenarios
+
+The evaluation suite in `evals/scenarios/v1.json` runs deterministic workflow scenarios and checks expected workflow/task statuses and reply or policy text. It reports pass rate and outcome counts; any failed scenario makes the command exit non-zero.
+
+Run the evaluation suite from this directory:
+
+```bash
+PYTHONPATH=src python3 -m agent_platform_lab.evaluation
+```
+
 ## Planned milestones
 
 1. Add typed tools and a workflow runner with mocked tools.
