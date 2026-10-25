@@ -30,5 +30,7 @@ PYTHONPATH=src python3 -m agent_platform_lab.evaluation
 4. Add correlated traces, cost tracking, and loop detection.
 5. Add a second harness adapter and a mock short-lived credential broker.
 6. Containerize the worker and document deployment, recovery, and operations.
+7. Add unit tests for the evaluation runner (suite pass, failure detection, malformed JSON, exit codes).
+
 
 Use synthetic data and mocked external services throughout the portfolio demo. Never add real credentials to prompts, logs, tests, or repository files.
