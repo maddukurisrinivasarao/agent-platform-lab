@@ -42,6 +42,7 @@ class ToolCall:
 class ToolResult:
     decision: PolicyDecision
     output: object | None = None
+    cost: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -67,8 +68,14 @@ class Tool(Generic[InputT, OutputT]):
 
 
 class ToolRegistry:
-    def __init__(self, policy: ActionPolicy, tools: list[Tool[Any, Any]]) -> None:
+    def __init__(
+        self,
+        policy: ActionPolicy,
+        tools: list[Tool[Any, Any]],
+        costs: dict[str, float] | None = None,
+    ) -> None:
         self._policy = policy
+        self._costs = dict(costs or {})
         self._tools: dict[str, Tool[Any, Any]] = {}
         for tool in tools:
             if tool.name in self._tools:
@@ -83,7 +90,9 @@ class ToolRegistry:
         tool = self._tools.get(call.name)
         if tool is None:
             raise LookupError(f"Policy allows '{call.name}', but no such tool is registered.")
-        return ToolResult(decision, tool.execute(call.arguments))
+        output = tool.execute(call.arguments)
+        cost = self._costs.get(call.name, 0.0)
+        return ToolResult(decision, output, cost)
 
 
 def create_mock_tool_registry(policy: ActionPolicy) -> ToolRegistry:
@@ -116,4 +125,5 @@ def create_mock_tool_registry(policy: ActionPolicy) -> ToolRegistry:
             Tool("read_ticket", ReadTicketInput, Ticket, read_ticket),
             Tool("draft_reply", DraftReplyInput, ReplyDraft, draft_reply),
         ],
+        costs={"read_ticket": 0.12, "draft_reply": 0.35},
     )

@@ -28,6 +28,9 @@ class TaskState:
     current_tool: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
     approvals: list[str] = field(default_factory=list)
+    total_cost: float = 0.0
+    loop_detected: bool = False
+    trace_events: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -38,6 +41,8 @@ class TaskState:
         description: str | None = None,
         current_tool: str | None = None,
         payload: dict[str, Any] | None = None,
+        total_cost: float | None = None,
+        loop_detected: bool | None = None,
     ) -> "TaskState":
         self.status = new_status
         if description is not None:
@@ -46,6 +51,10 @@ class TaskState:
             self.current_tool = current_tool
         if payload is not None:
             self.payload = payload
+        if total_cost is not None:
+            self.total_cost = total_cost
+        if loop_detected is not None:
+            self.loop_detected = loop_detected
         self.updated_at = datetime.now(timezone.utc).isoformat()
         return self
 
@@ -57,6 +66,9 @@ class TaskState:
             "current_tool": self.current_tool,
             "payload": self.payload,
             "approvals": self.approvals,
+            "total_cost": self.total_cost,
+            "loop_detected": self.loop_detected,
+            "trace_events": self.trace_events,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -70,6 +82,9 @@ class TaskState:
             current_tool=values.get("current_tool"),
             payload=values.get("payload", {}),
             approvals=values.get("approvals", []),
+            total_cost=float(values.get("total_cost", 0.0) or 0.0),
+            loop_detected=bool(values.get("loop_detected", False)),
+            trace_events=list(values.get("trace_events", [])),
             created_at=values.get("created_at", datetime.now(timezone.utc).isoformat()),
             updated_at=values.get("updated_at", datetime.now(timezone.utc).isoformat()),
         )
