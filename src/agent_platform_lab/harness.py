@@ -107,7 +107,11 @@ class PlannerHarness:
         for _ in range(self._max_steps):
             call = self._planner(ticket_id, tuple(history))
             if call is None:
-                task.transition("completed", description=f"Completed support reply for ticket {ticket_id}")
+                task.transition(
+                    "completed",
+                    description=f"Completed support reply for ticket {ticket_id}",
+                    payload={"ticket_id": ticket_id, "reply_body": draft.body if draft else None},
+                )
                 return self._finish(task, "completed", ticket=ticket, draft=draft)
 
             task.transition("running", current_tool=call.name, description=f"Running {call.name}")

@@ -44,6 +44,16 @@ See [docs/operations.md](docs/operations.md) for configuration, deployment, reco
 
 `tests/test_evaluation.py` covers the evaluation runner itself: the v1 suite passes on every harness, wrong expectations are reported as failures with the right messages, malformed suites and scenarios missing required fields are rejected with a clear `ValueError`, and the command exits `0` on success and `1` on any failure. These run with the rest of the unit tests.
 
+## Ticket database and LLM reply writer
+
+Tickets are stored in `data/tickets.xml` (five synthetic tickets) and loaded by `tickets.py`. `data/tickets_large.xml` holds 500 generated tickets (`T-2001` to `T-2500`) across billing, login, bug, how-to, account, feedback, cancellation, and prompt-injection categories; regenerate it with `python3 scripts/generate_tickets.py [count]` and use it with `AGENT_TICKETS_FILE=data/tickets_large.xml`. The `draft_reply` tool takes a pluggable reply writer from `replies.py`: the default fixed template, or `llm_reply`, which drafts the reply through `ClientSingleton` in `llm_client.py` (Groq, OpenRouter, Ollama, or Anthropic; default `openai/gpt-oss-120b` on Groq). Tests and evaluations always use the template, so they need no network or API key.
+
+```bash
+PYTHONPATH=src python3 -m agent_platform_lab.worker run T-1002            # template reply
+pip install ".[groq]" && export GROQ_API_KEY_2=...
+AGENT_REPLY_WRITER=llm PYTHONPATH=src python3 -m agent_platform_lab.worker run T-1002
+```
+
 ## Planned milestones
 
 1. Add typed tools and a workflow runner with mocked tools.

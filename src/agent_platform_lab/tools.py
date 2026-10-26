@@ -1,10 +1,11 @@
 """Typed tool definitions and policy-enforced tool dispatch."""
 
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, Mapping, TypeVar
 
 from agent_platform_lab.credentials import CredentialBroker, CredentialError
 from agent_platform_lab.policy import ActionPolicy, ActionRequest, PolicyDecision
+from agent_platform_lab.replies import ReplyWriter, template_reply
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -109,32 +110,20 @@ class ToolRegistry:
         return ToolResult(decision, output, self._costs.get(call.name, 0.0), credential.credential_id)
 
 
-def create_mock_tool_registry(
+def create_tool_registry(
     policy: ActionPolicy,
+    tickets: Mapping[str, Ticket],
+    reply_writer: ReplyWriter = template_reply,
     credential_broker: CredentialBroker | None = None,
 ) -> ToolRegistry:
-    tickets = {
-        "T-1001": Ticket(
-            ticket_id="T-1001",
-            subject="Unable to access my account",
-            body="I reset my password but still cannot sign in.",
-        )
-    }
-
     def read_ticket(arguments: ReadTicketInput) -> Ticket:
         try:
             return tickets[arguments.ticket_id]
         except KeyError as error:
-            raise KeyError(f"Unknown mock ticket: {arguments.ticket_id}") from error
+            raise KeyError(f"Unknown ticket: {arguments.ticket_id}") from error
 
     def draft_reply(arguments: DraftReplyInput) -> ReplyDraft:
-        return ReplyDraft(
-            ticket_id=arguments.ticket.ticket_id,
-            body=(
-                f"Thanks for contacting support about '{arguments.ticket.subject}'. "
-                "We will review the sign-in issue and follow up."
-            ),
-        )
+        return ReplyDraft(ticket_id=arguments.ticket.ticket_id, body=reply_writer(arguments.ticket))
 
     return ToolRegistry(
         policy,
@@ -145,3 +134,18 @@ def create_mock_tool_registry(
         costs={"read_ticket": 0.12, "draft_reply": 0.35},
         credential_broker=credential_broker,
     )
+
+
+def create_mock_tool_registry(
+    policy: ActionPolicy,
+    credential_broker: CredentialBroker | None = None,
+) -> ToolRegistry:
+    """Single built-in ticket and template replies, for deterministic tests and evaluations."""
+    tickets = {
+        "T-1001": Ticket(
+            ticket_id="T-1001",
+            subject="Unable to access my account",
+            body="I reset my password but still cannot sign in.",
+        )
+    }
+    return create_tool_registry(policy, tickets, credential_broker=credential_broker)

@@ -10,12 +10,14 @@ from unittest import mock
 from agent_platform_lab.state import TaskState
 from agent_platform_lab.worker import Worker, WorkerConfig, main
 
+TICKETS_FILE = str(Path(__file__).resolve().parents[1] / "data" / "tickets.xml")
+
 
 class WorkerTests(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)
-        self.env = {"AGENT_STATE_DIR": self._tmpdir.name}
+        self.env = {"AGENT_STATE_DIR": self._tmpdir.name, "AGENT_TICKETS_FILE": TICKETS_FILE}
 
     def run_main(self, *argv, **env):
         output = io.StringIO()
@@ -32,9 +34,18 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(config.approval_required, frozenset({"draft_reply"}))
         self.assertEqual(config.state_dir, Path("/data"))
 
-    def test_config_rejects_unknown_harness(self):
-        with self.assertRaises(ValueError):
-            WorkerConfig.from_env({"AGENT_HARNESS": "unknown"})
+    def test_config_rejects_unknown_harness_or_writer(self):
+        for env in ({"AGENT_HARNESS": "unknown"}, {"AGENT_REPLY_WRITER": "groq"}, {"AGENT_LLM_PROVIDER": "openai"}):
+            with self.subTest(env=env), self.assertRaises(ValueError):
+                WorkerConfig.from_env(env)
+
+    def test_run_reads_tickets_from_xml_and_reports_reply(self):
+        code, lines = self.run_main("run", "T-1003")
+
+        self.assertEqual(code, 0)
+        self.assertIn("Export to CSV is missing columns", lines[0]["reply"])
+        stored = Worker(WorkerConfig.from_env(self.env)).checkpoints.load("ticket:T-1003")
+        self.assertEqual(stored.payload["reply_body"], lines[0]["reply"])
 
     def test_run_processes_ticket_and_checkpoints_result(self):
         code, lines = self.run_main("run", "T-1001")

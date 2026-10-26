@@ -7,6 +7,12 @@ Configuration comes from environment variables so the same image runs in any env
   AGENT_ALLOWED_ACTIONS    comma-separated allow-list (default: read_ticket,draft_reply)
   AGENT_APPROVAL_REQUIRED  comma-separated actions that pause for approval (default: none)
   AGENT_CREDENTIAL_TTL     credential lifetime in seconds (default: 30)
+  AGENT_TICKETS_FILE       XML ticket database (default: data/tickets.xml)
+  AGENT_REPLY_WRITER       "template" or "llm" (default: template)
+  AGENT_LLM_PROVIDER       groq, openrouter, ollama, or anthropic (default: groq)
+  AGENT_LLM_MODEL          model ID for that provider (default: openai/gpt-oss-120b)
+
+The llm writer reads its API key from GROQ_API_KEY_2, OPENROUTER_API_KEY, or ANTHROPIC_API_KEY.
 """
 
 from __future__ import annotations
@@ -21,8 +27,11 @@ from pathlib import Path
 from agent_platform_lab.credentials import CredentialBroker
 from agent_platform_lab.harness import HarnessAdapter, PlannerHarness, ScriptedHarness
 from agent_platform_lab.policy import ActionPolicy
+from agent_platform_lab.llm_client import ClientSingleton
+from agent_platform_lab.replies import ReplyWriter, llm_reply, template_reply
 from agent_platform_lab.state import CheckpointStore, TaskState
-from agent_platform_lab.tools import create_mock_tool_registry
+from agent_platform_lab.tickets import load_tickets_xml
+from agent_platform_lab.tools import create_tool_registry
 from agent_platform_lab.workflow import SupportTicketWorkflow, WorkflowResult
 
 # Tasks in these states were interrupted mid-run; every tool is read-only or draft-only,
@@ -38,6 +47,10 @@ class WorkerConfig:
     allowed_actions: frozenset[str]
     approval_required: frozenset[str]
     credential_ttl: float
+    tickets_file: Path
+    reply_writer: str
+    llm_provider: str
+    llm_model: str
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "WorkerConfig":
@@ -49,12 +62,24 @@ class WorkerConfig:
         harness = env.get("AGENT_HARNESS", "planner")
         if harness not in ("scripted", "planner"):
             raise ValueError(f"AGENT_HARNESS must be 'scripted' or 'planner', got '{harness}'.")
+        reply_writer = env.get("AGENT_REPLY_WRITER", "template")
+        if reply_writer not in ("template", "llm"):
+            raise ValueError(f"AGENT_REPLY_WRITER must be 'template' or 'llm', got '{reply_writer}'.")
+        llm_provider = env.get("AGENT_LLM_PROVIDER", "groq")
+        if llm_provider not in ("groq", "openrouter", "ollama", "anthropic"):
+            raise ValueError(
+                f"AGENT_LLM_PROVIDER must be groq, openrouter, ollama, or anthropic, got '{llm_provider}'."
+            )
         return cls(
             state_dir=Path(env.get("AGENT_STATE_DIR", "state")),
             harness=harness,
             allowed_actions=actions("AGENT_ALLOWED_ACTIONS", "read_ticket,draft_reply"),
             approval_required=actions("AGENT_APPROVAL_REQUIRED", ""),
             credential_ttl=float(env.get("AGENT_CREDENTIAL_TTL", "30")),
+            tickets_file=Path(env.get("AGENT_TICKETS_FILE", "data/tickets.xml")),
+            reply_writer=reply_writer,
+            llm_provider=llm_provider,
+            llm_model=env.get("AGENT_LLM_MODEL", "openai/gpt-oss-120b"),
         )
 
 
@@ -68,8 +93,16 @@ class Worker:
             allowed_actions=self.config.allowed_actions,
             approval_required=self.config.approval_required,
         )
-        tools = create_mock_tool_registry(
-            policy, credential_broker=CredentialBroker(ttl_seconds=self.config.credential_ttl)
+        reply_writer: ReplyWriter = template_reply
+        if self.config.reply_writer == "llm":
+            ClientSingleton.configure(self.config.llm_provider, self.config.llm_model)
+            ClientSingleton.get_llm_client()  # Fail at startup, not mid-ticket, if the SDK is missing.
+            reply_writer = llm_reply
+        tools = create_tool_registry(
+            policy,
+            load_tickets_xml(self.config.tickets_file),
+            reply_writer,
+            credential_broker=CredentialBroker(ttl_seconds=self.config.credential_ttl),
         )
         if self.config.harness == "scripted":
             return ScriptedHarness(SupportTicketWorkflow(tools, checkpoint_store=self.checkpoints))
@@ -107,6 +140,7 @@ def _summary(result: WorkflowResult) -> dict[str, object]:
         "task_status": task.status if task else None,
         "total_cost": round(result.total_cost, 4),
         "reason": result.reason,
+        "reply": result.draft.body if result.draft else None,
     }
 
 
@@ -142,6 +176,13 @@ def main(argv: list[str] | None = None) -> int:
 
     for result in results:
         _emit("task_finished", **_summary(result))
+    if worker.config.reply_writer == "llm":
+        _emit(
+            "llm_usage",
+            provider=worker.config.llm_provider,
+            model=worker.config.llm_model,
+            **ClientSingleton.get_usage(),
+        )
     failed = any(result.task_state and result.task_state.status in FAILED_STATUSES for result in results)
     return 1 if failed else 0
 

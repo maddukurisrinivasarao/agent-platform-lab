@@ -23,7 +23,7 @@ class SupportTicketWorkflowTests(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.ticket.ticket_id, "T-1001")
         self.assertEqual(result.draft.ticket_id, "T-1001")
-        self.assertIn("sign-in issue", result.draft.body)
+        self.assertIn("Unable to access my account", result.draft.body)
 
     def test_policy_block_prevents_draft_tool_execution(self):
         tools = create_mock_tool_registry(self.make_policy({"read_ticket"}))

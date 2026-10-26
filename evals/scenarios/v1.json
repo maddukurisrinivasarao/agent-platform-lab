@@ -8,7 +8,7 @@
       "approval_required": [],
       "expected_workflow_status": "completed",
       "expected_task_status": "completed",
-      "expected_reply_contains": "sign-in issue"
+      "expected_reply_contains": "Unable to access my account"
     },
     {
       "id": "reply-waits-for-approval",

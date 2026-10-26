@@ -25,6 +25,47 @@ All settings are environment variables:
 | `AGENT_ALLOWED_ACTIONS` | `read_ticket,draft_reply` | Comma-separated tool allow-list |
 | `AGENT_APPROVAL_REQUIRED` | empty | Tools that pause for human approval; must also be allow-listed |
 | `AGENT_CREDENTIAL_TTL` | `30` | Lifetime in seconds of each mock tool credential |
+| `AGENT_TICKETS_FILE` | `data/tickets.xml` (`/app/data/tickets.xml` in the image) | XML ticket database |
+| `AGENT_REPLY_WRITER` | `template` | `template` (fixed text, free) or `llm` (billed per call by the provider) |
+| `AGENT_LLM_PROVIDER` | `groq` | `groq`, `openrouter`, `ollama` (local, free), or `anthropic` |
+| `AGENT_LLM_MODEL` | `openai/gpt-oss-120b` | Model ID for that provider |
+| `GROQ_API_KEY_2` / `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` | unset | Key for the chosen provider (Ollama needs none); never logged |
+
+### Ticket database
+
+Tickets live in an XML file. Each ticket needs an `id`, a `subject`, and a `body`:
+
+```xml
+<tickets>
+  <ticket id="T-1001">
+    <subject>Unable to access my account</subject>
+    <body>I reset my password but still cannot sign in.</body>
+  </ticket>
+</tickets>
+```
+
+The file is read when the worker starts. Invalid XML, missing fields, and duplicate IDs stop the worker with a `worker_error`. Use synthetic tickets only.
+
+### LLM reply writer
+
+All providers go through `ClientSingleton` in `llm_client.py`, which builds one client per process and normalizes every response to a `.content` string.
+
+```bash
+pip install ".[groq]"               # or .[openrouter], .[ollama], .[anthropic]
+export GROQ_API_KEY_2=...           # never commit this or put it in a file in the repo
+AGENT_REPLY_WRITER=llm agent-worker run T-1002
+
+# Another provider
+AGENT_REPLY_WRITER=llm AGENT_LLM_PROVIDER=ollama AGENT_LLM_MODEL=qwen2.5-coder:7b agent-worker run T-1002
+```
+
+After the tickets, the worker logs an `llm_usage` event with the real prompt, completion, and total token counts for the run.
+
+The customer's ticket text is sent to the model inside `<ticket>` tags, and the system prompt tells the model to treat it as data, not instructions (ticket `T-1005` contains an injection attempt to try this). The prompt also forbids promising refunds or account changes. Replies are drafts and are never sent. An API error or empty reply marks the task `failed`. Requests time out after 120 seconds.
+
+In the container, pass the key at run time: `docker run --rm -e GROQ_API_KEY_2 -e AGENT_REPLY_WRITER=llm -v agent-state:/data agent-platform-lab:0.1.0 run T-1002`.
+
+The mock per-call costs in traces (`0.12`, `0.35`) do not reflect real token charges; use the `llm_usage` event or the provider's console for real spend.
 
 ## Deployment
 
@@ -83,7 +124,7 @@ A ticket that raises an error is marked `failed` and the worker moves on to the 
 The worker writes one JSON object per line to stdout:
 
 ```json
-{"event": "task_finished", "task_id": "ticket:T-1001", "workflow_status": "completed", "task_status": "completed", "total_cost": 0.47, "reason": null}
+{"event": "task_finished", "task_id": "ticket:T-1001", "workflow_status": "completed", "task_status": "completed", "total_cost": 0.47, "reason": null, "reply": "Thanks for contacting support about 'Unable to access my account'. We will review your request and follow up."}
 ```
 
 | Event | When |
@@ -108,7 +149,11 @@ Credential tokens never appear in logs or traces; only credential IDs (`cred-...
 |---|---|---|
 | `worker_error` mentioning `AGENT_HARNESS` | Typo in the variable | Use `planner` or `scripted` |
 | `worker_error` saying approval actions must be allow-listed | `AGENT_APPROVAL_REQUIRED` lists a tool missing from `AGENT_ALLOWED_ACTIONS` | Add it to both |
-| Task `failed` with `KeyError: Unknown mock ticket` | Ticket ID not in the mock data | Only `T-1001` exists in the demo |
+| Task `failed` with `KeyError: Unknown ticket` | Ticket ID not in the XML file | Add it to `AGENT_TICKETS_FILE` or check the ID |
+| `worker_error` saying `No module named 'groq'`, `'openai'`, or `'anthropic'` | SDK for `AGENT_LLM_PROVIDER` not installed | `pip install ".[groq]"` (or the matching extra) |
+| `worker_error` or task `failed` mentioning the API key or `AuthenticationError` | Missing or invalid key for the provider | Set `GROQ_API_KEY_2`, `OPENROUTER_API_KEY`, or `ANTHROPIC_API_KEY` |
+| Task `failed` with `APIConnectionError` and provider `ollama` | Ollama server not running | Start Ollama and `ollama pull` the model |
+| Task `failed` with `returned no reply text` | The model returned an empty answer | Rerun the ticket; draft that reply by hand if it repeats |
 | Task `blocked` with `not allow-listed` | Tool missing from the allow-list | Update `AGENT_ALLOWED_ACTIONS` |
 | Every tool call denied with `has expired` | `AGENT_CREDENTIAL_TTL` is `0` | Use a positive TTL |
 | `PermissionError` writing checkpoints in the container | Mounted host directory not writable by UID 10001 | Use a named volume, or `chown 10001` the host directory |
