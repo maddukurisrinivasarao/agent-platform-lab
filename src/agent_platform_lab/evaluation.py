@@ -22,6 +22,15 @@ HARNESSES: dict[str, Callable[[ToolRegistry], HarnessAdapter]] = {
 }
 
 
+_REQUIRED_SCENARIO_KEYS = (
+    "id",
+    "ticket_id",
+    "allowed_actions",
+    "expected_workflow_status",
+    "expected_task_status",
+)
+
+
 @dataclass(frozen=True)
 class EvaluationScenario:
     scenario_id: str
@@ -71,6 +80,11 @@ class EvaluationReport:
 
 
 def _read_scenario(value: dict[str, Any]) -> EvaluationScenario:
+    missing = [key for key in _REQUIRED_SCENARIO_KEYS if key not in value]
+    if missing:
+        raise ValueError(
+            f"Scenario {value.get('id', '<no id>')!r} is missing required fields: {', '.join(missing)}."
+        )
     return EvaluationScenario(
         scenario_id=value["id"],
         ticket_id=value["ticket_id"],

@@ -40,6 +40,10 @@ docker run --rm -v agent-state:/data agent-platform-lab:0.1.0 run T-1001
 
 See [docs/operations.md](docs/operations.md) for configuration, deployment, recovery, monitoring, and troubleshooting.
 
+## Milestone 7: Evaluation runner tests
+
+`tests/test_evaluation.py` covers the evaluation runner itself: the v1 suite passes on every harness, wrong expectations are reported as failures with the right messages, malformed suites and scenarios missing required fields are rejected with a clear `ValueError`, and the command exits `0` on success and `1` on any failure. These run with the rest of the unit tests.
+
 ## Planned milestones
 
 1. Add typed tools and a workflow runner with mocked tools.
