@@ -22,6 +22,12 @@ Run the evaluation suite from this directory:
 PYTHONPATH=src python3 -m agent_platform_lab.evaluation
 ```
 
+## Milestone 5: Harness adapters and mock credential broker
+
+`harness.py` defines a common `run(ticket_id)` interface with two adapters: `ScriptedHarness` wraps the fixed-step workflow, and `PlannerHarness` runs a model-style loop in which a planner proposes each tool call. The default planner is a deterministic mock; the loop stops on approval, denial, loop detection, or a step limit. The evaluation suite runs every scenario against both adapters.
+
+`credentials.py` provides a mock `CredentialBroker`. When a registry has one, every allowed tool call gets a fresh token scoped to that tool, validated for scope and expiry just before execution, and revoked immediately after. Traces record only the credential ID, never the token. Tokens are random mock values, not real secrets.
+
 ## Planned milestones
 
 1. Add typed tools and a workflow runner with mocked tools.

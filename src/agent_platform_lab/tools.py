@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, TypeVar
 
+from agent_platform_lab.credentials import CredentialBroker, CredentialError
 from agent_platform_lab.policy import ActionPolicy, ActionRequest, PolicyDecision
 
 InputT = TypeVar("InputT")
@@ -43,6 +44,7 @@ class ToolResult:
     decision: PolicyDecision
     output: object | None = None
     cost: float = 0.0
+    credential_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,9 +75,11 @@ class ToolRegistry:
         policy: ActionPolicy,
         tools: list[Tool[Any, Any]],
         costs: dict[str, float] | None = None,
+        credential_broker: CredentialBroker | None = None,
     ) -> None:
         self._policy = policy
         self._costs = dict(costs or {})
+        self._credential_broker = credential_broker
         self._tools: dict[str, Tool[Any, Any]] = {}
         for tool in tools:
             if tool.name in self._tools:
@@ -90,12 +94,25 @@ class ToolRegistry:
         tool = self._tools.get(call.name)
         if tool is None:
             raise LookupError(f"Policy allows '{call.name}', but no such tool is registered.")
-        output = tool.execute(call.arguments)
-        cost = self._costs.get(call.name, 0.0)
-        return ToolResult(decision, output, cost)
+        if self._credential_broker is None:
+            return ToolResult(decision, tool.execute(call.arguments), self._costs.get(call.name, 0.0))
+
+        # Each allowed call gets a fresh credential scoped to this tool; it is revoked after one use.
+        credential = self._credential_broker.issue(call.name)
+        try:
+            self._credential_broker.validate(credential.token, call.name)
+            output = tool.execute(call.arguments)
+        except CredentialError as error:
+            return ToolResult(PolicyDecision("deny", str(error)), credential_id=credential.credential_id)
+        finally:
+            self._credential_broker.revoke(credential.credential_id)
+        return ToolResult(decision, output, self._costs.get(call.name, 0.0), credential.credential_id)
 
 
-def create_mock_tool_registry(policy: ActionPolicy) -> ToolRegistry:
+def create_mock_tool_registry(
+    policy: ActionPolicy,
+    credential_broker: CredentialBroker | None = None,
+) -> ToolRegistry:
     tickets = {
         "T-1001": Ticket(
             ticket_id="T-1001",
@@ -126,4 +143,5 @@ def create_mock_tool_registry(policy: ActionPolicy) -> ToolRegistry:
             Tool("draft_reply", DraftReplyInput, ReplyDraft, draft_reply),
         ],
         costs={"read_ticket": 0.12, "draft_reply": 0.35},
+        credential_broker=credential_broker,
     )

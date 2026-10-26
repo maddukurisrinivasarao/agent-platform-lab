@@ -96,7 +96,11 @@ class SupportTicketWorkflow:
                 if ticket_result.decision.status == "allow"
                 else ticket_result.decision.reason
             ),
-            payload={"ticket_id": ticket_id, "status": ticket_result.decision.status},
+            payload={
+                "ticket_id": ticket_id,
+                "status": ticket_result.decision.status,
+                "credential_id": ticket_result.credential_id,
+            },
             cost=ticket_result.cost,
         )
         if ticket_result.decision.status == "approval_required":
@@ -155,7 +159,11 @@ class SupportTicketWorkflow:
                 if draft_result.decision.status == "allow"
                 else draft_result.decision.reason
             ),
-            payload={"ticket_id": ticket_id, "status": draft_result.decision.status},
+            payload={
+                "ticket_id": ticket_id,
+                "status": draft_result.decision.status,
+                "credential_id": draft_result.credential_id,
+            },
             cost=draft_result.cost,
         )
         if draft_result.decision.status == "approval_required":

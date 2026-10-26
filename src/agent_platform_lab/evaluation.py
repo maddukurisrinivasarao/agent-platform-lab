@@ -5,13 +5,21 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
+from agent_platform_lab.credentials import CredentialBroker
+from agent_platform_lab.harness import HarnessAdapter, PlannerHarness, ScriptedHarness
 from agent_platform_lab.policy import ActionPolicy
-from agent_platform_lab.tools import create_mock_tool_registry
+from agent_platform_lab.tools import ToolRegistry, create_mock_tool_registry
 from agent_platform_lab.workflow import SupportTicketWorkflow
 
 WorkflowStatus = Literal["completed", "blocked"]
+
+# Every scenario runs once per harness so both agent loops are held to the same expectations.
+HARNESSES: dict[str, Callable[[ToolRegistry], HarnessAdapter]] = {
+    "scripted": lambda tools: ScriptedHarness(SupportTicketWorkflow(tools)),
+    "planner": PlannerHarness,
+}
 
 
 @dataclass(frozen=True)
@@ -35,6 +43,7 @@ class EvaluationSuite:
 @dataclass(frozen=True)
 class ScenarioResult:
     scenario_id: str
+    harness: str
     passed: bool
     expected_workflow_status: str
     actual_workflow_status: str
@@ -92,12 +101,13 @@ def load_scenarios(path: str | Path | None = None) -> EvaluationSuite:
     )
 
 
-def _evaluate_scenario(scenario: EvaluationScenario) -> ScenarioResult:
+def _evaluate_scenario(scenario: EvaluationScenario, harness: str) -> ScenarioResult:
     policy = ActionPolicy(
         allowed_actions=frozenset(scenario.allowed_actions),
         approval_required=frozenset(scenario.approval_required),
     )
-    result = SupportTicketWorkflow(create_mock_tool_registry(policy)).run(scenario.ticket_id)
+    tools = create_mock_tool_registry(policy, credential_broker=CredentialBroker(ttl_seconds=30))
+    result = HARNESSES[harness](tools).run(scenario.ticket_id)
     task_status = result.task_state.status if result.task_state is not None else "missing"
     failed_checks: list[str] = []
 
@@ -124,6 +134,7 @@ def _evaluate_scenario(scenario: EvaluationScenario) -> ScenarioResult:
 
     return ScenarioResult(
         scenario_id=scenario.scenario_id,
+        harness=harness,
         passed=not failed_checks,
         expected_workflow_status=scenario.expected_workflow_status,
         actual_workflow_status=result.status,
@@ -136,7 +147,11 @@ def _evaluate_scenario(scenario: EvaluationScenario) -> ScenarioResult:
 def evaluate_scenarios(suite: EvaluationSuite | None = None) -> EvaluationReport:
     """Run every scenario and calculate regression metrics from actual outcomes."""
     suite = suite or load_scenarios()
-    results = tuple(_evaluate_scenario(scenario) for scenario in suite.scenarios)
+    results = tuple(
+        _evaluate_scenario(scenario, harness)
+        for scenario in suite.scenarios
+        for harness in HARNESSES
+    )
     total = len(results)
     passed = sum(result.passed for result in results)
     completed = sum(result.actual_workflow_status == "completed" for result in results)
@@ -160,7 +175,7 @@ def main() -> int:
     report = evaluate_scenarios()
     for result in report.results:
         outcome = "PASS" if result.passed else "FAIL"
-        print(f"{outcome} {result.scenario_id}")
+        print(f"{outcome} {result.scenario_id} [{result.harness}]")
         for check in result.failed_checks:
             print(f"  {check}")
 
