@@ -28,6 +28,18 @@ PYTHONPATH=src python3 -m agent_platform_lab.evaluation
 
 `credentials.py` provides a mock `CredentialBroker`. When a registry has one, every allowed tool call gets a fresh token scoped to that tool, validated for scope and expiry just before execution, and revoked immediately after. Traces record only the credential ID, never the token. Tokens are random mock values, not real secrets.
 
+## Milestone 6: Containerized worker and operations
+
+`worker.py` is a command-line worker with `run`, `recover`, and `status` commands. It reads its configuration from environment variables, checkpoints every step with crash-safe writes, reruns interrupted tasks on `recover`, and logs one JSON object per line. The `Dockerfile` packages it as an unprivileged container that keeps state on a `/data` volume and runs `recover` when started without arguments.
+
+```bash
+PYTHONPATH=src python3 -m agent_platform_lab.worker run T-1001
+docker build -t agent-platform-lab:0.1.0 .
+docker run --rm -v agent-state:/data agent-platform-lab:0.1.0 run T-1001
+```
+
+See [docs/operations.md](docs/operations.md) for configuration, deployment, recovery, monitoring, and troubleshooting.
+
 ## Planned milestones
 
 1. Add typed tools and a workflow runner with mocked tools.

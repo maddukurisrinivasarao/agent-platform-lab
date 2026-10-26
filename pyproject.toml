@@ -9,5 +9,8 @@ description = "A safe, observable runtime and evaluation lab for AI agent workfl
 requires-python = ">=3.10"
 dependencies = []
 
+[project.scripts]
+agent-worker = "agent_platform_lab.worker:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

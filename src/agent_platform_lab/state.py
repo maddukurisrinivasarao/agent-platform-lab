@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,11 +109,21 @@ class CheckpointStore:
                 raise ValueError(f"Checkpoint store at '{self.path}' is malformed.")
             return data
 
+    def _write_store(self, store: dict[str, dict[str, Any]]) -> None:
+        # Write to a temp file and rename so a crash mid-write never leaves a truncated store.
+        fd, temp_path = tempfile.mkstemp(dir=self.path.parent, prefix=f".{self.path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(store, handle, indent=2, sort_keys=True)
+            os.replace(temp_path, self.path)
+        except BaseException:
+            Path(temp_path).unlink(missing_ok=True)
+            raise
+
     def save(self, task: TaskState) -> TaskState:
         store = self._read_store()
         store[task.task_id] = task.to_dict()
-        with self.path.open("w", encoding="utf-8") as handle:
-            json.dump(store, handle, indent=2, sort_keys=True)
+        self._write_store(store)
         return task
 
     def load(self, task_id: str) -> TaskState | None:
@@ -121,8 +133,10 @@ class CheckpointStore:
             return None
         return TaskState.from_dict(value)
 
+    def all(self) -> tuple[TaskState, ...]:
+        return tuple(TaskState.from_dict(value) for value in self._read_store().values())
+
     def delete(self, task_id: str) -> None:
         store = self._read_store()
         store.pop(task_id, None)
-        with self.path.open("w", encoding="utf-8") as handle:
-            json.dump(store, handle, indent=2, sort_keys=True)
+        self._write_store(store)
